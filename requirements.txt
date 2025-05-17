@@ -1,1 +1,4 @@
-mcp_agent 
+mcp_agent
+requests
+pytz
+pytest
