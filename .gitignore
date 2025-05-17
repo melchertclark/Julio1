@@ -35,3 +35,7 @@ ENV/
 .vscode/
 *.swp
 *.swo
+
+# Custom Ignores
+transcripts/
+polling_log.txt

@@ -18,6 +18,9 @@ from datetime import datetime, timezone, timedelta
 import requests
 import pytz
 from pytz import timezone as tz_timezone
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # API Configuration
 LIMITLESS_API_KEY = os.environ.get("LIMITLESS_API_KEY", "")
@@ -27,7 +30,7 @@ NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 LOG_FILE = os.path.join(os.path.dirname(__file__), "polling_log.txt")
 
 # transcript settings
-TRANSCRIPT_ROOT = "/path/to/transcripts"
+TRANSCRIPT_ROOT = os.path.join(os.path.dirname(__file__), "transcripts")
 TZ = tz_timezone("US/Eastern")
 TRIGGER_WORDS = [r"to do list", r"perplexity", r"julio"]
 TRIGGER_PATTERN = re.compile(
@@ -129,6 +132,7 @@ def main():
     last_lifelogs = {}
     last_stable_end_time = None
     backoff = BACKOFF_INITIAL
+    alerted_triggers = set() # Keep track of alerted trigger phrases
 
     print("Starting polling loop...")
     while True:
@@ -177,12 +181,16 @@ def main():
                 with open(transcript_file, "a") as tf:
                     tf.write(md_entry)
 
-                if TRIGGER_PATTERN.search(raw):
-                    requests.post(
-                        NTFY_TRIGGER_URL,
-                        data=f"triggered on '{TRIGGER_PATTERN.search(raw).group(0)}' @ {entry_time}".encode(),
-                        headers={"Title": "trigger alert"},
-                    ).raise_for_status()
+                trigger_search = TRIGGER_PATTERN.search(raw) # Search for trigger words in the raw content
+                if trigger_search: # If a trigger word is found
+                    triggered_phrase = trigger_search.group(0).lower() # Get the specific trigger phrase found, in lowercase
+                    if triggered_phrase not in alerted_triggers: # Check if this specific phrase has already been alerted
+                        requests.post( # Send a notification via ntfy
+                            NTFY_TRIGGER_URL, # The URL for the ntfy topic
+                            data=f"triggered on '{triggered_phrase}' @ {entry_time}".encode(), # The notification message, including the trigger phrase and transcript entry time
+                            headers={"Title": "trigger alert"}, # The title of the notification
+                        ).raise_for_status() # Raise an exception if the request fails
+                        alerted_triggers.add(triggered_phrase) # Add the alerted phrase to the set of alerted triggers
 
             for lifelog_id in list(last_lifelogs.keys()):
                 if lifelog_id not in updated_ids:
