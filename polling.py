@@ -112,6 +112,55 @@ def read_last_log():
         return f.read()
 
 
+def handle_trigger(raw: str, entry_time: str, alerted_triggers: set, julio_triggered: bool) -> bool:
+    """Detect trigger words in ``raw`` and send ntfy notifications.
+
+    Parameters
+    ----------
+    raw : str
+        The raw lifelog content.
+    entry_time : str
+        Timestamp used in the transcript and notification.
+    alerted_triggers : set
+        Set of trigger phrases already alerted during this run.
+    julio_triggered : bool
+        Whether the ``julio`` trigger has already fired.
+
+    Returns
+    -------
+    bool
+        Updated ``julio_triggered`` state.
+    """
+
+    trigger_search = TRIGGER_PATTERN.search(raw)
+    if not trigger_search:
+        return julio_triggered
+
+    triggered_phrase = trigger_search.group(0).lower()
+
+    # Special handling for the "julio" trigger so it only fires once per run
+    if triggered_phrase == "julio":
+        if julio_triggered:
+            return julio_triggered
+        requests.post(
+            NTFY_TRIGGER_URL,
+            data=f"triggered on 'julio' @ {entry_time}".encode(),
+            headers={"Title": "trigger alert"},
+        ).raise_for_status()
+        return True
+
+    # Generic trigger deduplication
+    if triggered_phrase not in alerted_triggers:
+        requests.post(
+            NTFY_TRIGGER_URL,
+            data=f"triggered on '{triggered_phrase}' @ {entry_time}".encode(),
+            headers={"Title": "trigger alert"},
+        ).raise_for_status()
+        alerted_triggers.add(triggered_phrase)
+
+    return julio_triggered
+
+
 def transcript_path(now):
     """Return the path to today's transcript file, creating folders as needed."""
     y, m, d = now.strftime("%Y"), now.strftime("%m"), now.strftime("%d")
@@ -132,7 +181,8 @@ def main():
     last_lifelogs = {}
     last_stable_end_time = None
     backoff = BACKOFF_INITIAL
-    alerted_triggers = set() # Keep track of alerted trigger phrases
+    alerted_triggers = set()  # Keep track of alerted trigger phrases
+    julio_triggered = False  # Ensure "julio" only alerts once per run
 
     print("Starting polling loop...")
     while True:
@@ -181,16 +231,12 @@ def main():
                 with open(transcript_file, "a") as tf:
                     tf.write(md_entry)
 
-                trigger_search = TRIGGER_PATTERN.search(raw) # Search for trigger words in the raw content
-                if trigger_search: # If a trigger word is found
-                    triggered_phrase = trigger_search.group(0).lower() # Get the specific trigger phrase found, in lowercase
-                    if triggered_phrase not in alerted_triggers: # Check if this specific phrase has already been alerted
-                        requests.post( # Send a notification via ntfy
-                            NTFY_TRIGGER_URL, # The URL for the ntfy topic
-                            data=f"triggered on '{triggered_phrase}' @ {entry_time}".encode(), # The notification message, including the trigger phrase and transcript entry time
-                            headers={"Title": "trigger alert"}, # The title of the notification
-                        ).raise_for_status() # Raise an exception if the request fails
-                        alerted_triggers.add(triggered_phrase) # Add the alerted phrase to the set of alerted triggers
+                julio_triggered = handle_trigger(
+                    raw,
+                    entry_time,
+                    alerted_triggers,
+                    julio_triggered,
+                )
 
             for lifelog_id in list(last_lifelogs.keys()):
                 if lifelog_id not in updated_ids:

@@ -29,3 +29,27 @@ def test_rollover_dst(tmp_path):
     path_before = polling.transcript_path(before)
     path_after = polling.transcript_path(after)
     assert path_before != path_after
+
+
+def test_julio_trigger_once_per_run():
+    alerted = set()
+    with mock.patch("polling.requests.post") as mock_post:
+        triggered = False
+        triggered = polling.handle_trigger("hello Julio", "12:00", alerted, triggered)
+        triggered = polling.handle_trigger("Julio again", "12:01", alerted, triggered)
+        assert mock_post.call_count == 1
+        # Ensure timestamp included in payload
+        args, kwargs = mock_post.call_args_list[0]
+        assert b"12:00" in kwargs["data"]
+
+
+def test_julio_trigger_resets_next_run():
+    alerted = set()
+    with mock.patch("polling.requests.post") as mock_post:
+        triggered = False
+        triggered = polling.handle_trigger("Julio here", "08:00", alerted, triggered)
+        assert mock_post.call_count == 1
+        # New run should trigger again
+        triggered = False
+        triggered = polling.handle_trigger("Another Julio", "09:00", alerted, triggered)
+        assert mock_post.call_count == 2
