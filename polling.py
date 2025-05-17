@@ -120,6 +120,55 @@ def transcript_path(now):
     return os.path.join(folder, f"{y}-{m}-{d}.md")
 
 
+def deduplicate_transcript(path: str) -> None:
+    """Remove duplicate entries from a transcript file."""
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r") as f:
+        lines = f.readlines()
+
+    preamble = []
+    entries = []
+    seen = set()
+
+    iterator = iter(lines)
+
+    # grab preamble before first entry (usually the title)
+    for line in iterator:
+        if line.startswith("## "):
+            header = line
+            break
+        preamble.append(line)
+    else:
+        # file has no entries
+        with open(path, "w") as f:
+            f.writelines(preamble)
+        return
+
+    entry_lines = []
+    for line in iterator:
+        if line.startswith("## "):
+            content = "".join(entry_lines).strip()
+            if content not in seen:
+                entries.append((header, entry_lines))
+                seen.add(content)
+            header = line
+            entry_lines = []
+        else:
+            entry_lines.append(line)
+
+    content = "".join(entry_lines).strip()
+    if content not in seen:
+        entries.append((header, entry_lines))
+
+    with open(path, "w") as f:
+        f.writelines(preamble)
+        for header, lines_ in entries:
+            f.write(header)
+            f.writelines(lines_)
+
+
 def main():
     """Main polling loop."""
     # transcript setup
@@ -128,11 +177,14 @@ def main():
     if not os.path.exists(transcript_file):
         with open(transcript_file, "w") as f:
             f.write(f"# transcript for {current_date.isoformat()}\n\n")
+    else:
+        deduplicate_transcript(transcript_file)
 
     last_lifelogs = {}
     last_stable_end_time = None
     backoff = BACKOFF_INITIAL
-    alerted_triggers = set() # Keep track of alerted trigger phrases
+    alerted_triggers = set()  # Keep track of alerted trigger phrases
+    written_logs = {}
 
     print("Starting polling loop...")
     while True:
@@ -140,8 +192,11 @@ def main():
         if now_est.date() != current_date:
             current_date = now_est.date()
             transcript_file = transcript_path(now_est)
-            with open(transcript_file, "w") as f:
-                f.write(f"# transcript for {current_date.isoformat()}\n\n")
+            if not os.path.exists(transcript_file):
+                with open(transcript_file, "w") as f:
+                    f.write(f"# transcript for {current_date.isoformat()}\n\n")
+            else:
+                deduplicate_transcript(transcript_file)
 
         try:
             date = today_est_date()
@@ -170,18 +225,21 @@ def main():
                         last_lifelogs[lifelog_id]["stable_count"] += 1
                 updated_ids.add(lifelog_id)
 
-                entry_time = datetime.now(TZ).strftime("%H:%M:%S")
                 raw = content
+                prev_written = written_logs.get(lifelog_id)
+                if prev_written != content:
+                    entry_time = datetime.now(TZ).strftime("%H:%M:%S")
 
-                def highlight(m):
-                    return f"**{m.group(0)}**"
+                    def highlight(m):
+                        return f"**{m.group(0)}**"
 
-                highlighted = TRIGGER_PATTERN.sub(highlight, raw)
-                md_entry = f"## {entry_time} — {title}\n\n{highlighted}\n\n"
-                with open(transcript_file, "a") as tf:
-                    tf.write(md_entry)
+                    highlighted = TRIGGER_PATTERN.sub(highlight, raw)
+                    md_entry = f"## {entry_time} — {title}\n\n{highlighted}\n\n"
+                    with open(transcript_file, "a") as tf:
+                        tf.write(md_entry)
+                    written_logs[lifelog_id] = content
 
-                trigger_search = TRIGGER_PATTERN.search(raw) # Search for trigger words in the raw content
+                trigger_search = TRIGGER_PATTERN.search(raw)  # Search for trigger words in the raw content
                 if trigger_search: # If a trigger word is found
                     triggered_phrase = trigger_search.group(0).lower() # Get the specific trigger phrase found, in lowercase
                     if triggered_phrase not in alerted_triggers: # Check if this specific phrase has already been alerted
