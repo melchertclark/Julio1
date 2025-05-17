@@ -29,3 +29,16 @@ def test_rollover_dst(tmp_path):
     path_before = polling.transcript_path(before)
     path_after = polling.transcript_path(after)
     assert path_before != path_after
+
+
+def test_deduplicate_transcript(tmp_path):
+    file_path = tmp_path / "test.md"
+    file_path.write_text(
+        "# transcript for 2024-05-04\n\n"
+        "## 10:00:00 -- title\n\nhello\n\n"
+        "## 11:00:00 -- title\n\nhello\n\n"
+    )
+    polling.deduplicate_transcript(str(file_path))
+    content = file_path.read_text()
+    assert content.count("hello") == 1
+
