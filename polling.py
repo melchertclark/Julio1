@@ -107,6 +107,7 @@ def log_difference(lifelog_id, prev_content, new_content, content_time, ntfy_tim
     )
     with open(LOG_FILE, "a") as f:
         f.write(log_entry)
+    print(f"Logged to: {os.path.basename(LOG_FILE)}") # Log writing to the log file
 
 
 def read_last_log():
@@ -182,6 +183,7 @@ def main():
     if not os.path.exists(transcript_file):
         with open(transcript_file, "w") as f:
             f.write(f"# transcript for {current_date.isoformat()}\n\n")
+        print(f"Created: {os.path.basename(transcript_file)}") # Log transcript file creation
     else:
         deduplicate_transcript(transcript_file)
 
@@ -200,6 +202,7 @@ def main():
             if not os.path.exists(transcript_file):
                 with open(transcript_file, "w") as f:
                     f.write(f"# transcript for {current_date.isoformat()}\n\n")
+                print(f"Created: {os.path.basename(transcript_file)}") # Log transcript file creation
             else:
                 deduplicate_transcript(transcript_file)
 
@@ -207,6 +210,7 @@ def main():
             date = today_est_date()
             start = last_stable_end_time
             lifelogs = fetch_lifelogs(date=date, start=start)
+            print(f"API fetch success: Retrieved lifelogs.") # Log success of API call
 
             updated_ids = set()
             most_recent_update = None
@@ -243,9 +247,10 @@ def main():
                         return f"**{m.group(0)}**"
 
                     highlighted = TRIGGER_PATTERN.sub(highlight, raw)
-                    md_entry = f"## {entry_time} — {title}\n\n{highlighted}\n\n"
+                    md_entry = f"{highlighted}\n\n"
                     with open(transcript_file, "a") as tf:
                         tf.write(md_entry)
+                    print(f"Appended: {os.path.basename(transcript_file)}") # Log that content was appended to the transcript file
                     written_logs[lifelog_id] = content
 
                 trigger_search = TRIGGER_PATTERN.search(raw)  # Search for trigger words in the raw content
@@ -289,7 +294,9 @@ def main():
             time.sleep(backoff)
             backoff = BACKOFF_INITIAL
         except Exception as e:
-            print(f"Error occurred: {e}")
+            error_type = type(e).__name__ # Get the type of the error
+            error_message = str(e).splitlines()[0][:70] # Get the first line of the error message, limit to 70 chars for brevity
+            print(f"API fetch error: {error_type} - {error_message}") # Log the error type and a brief description
             print(f"Will retry in {backoff} seconds...")
             print("Don't worry - script will keep running and catch up when API is available again")
             time.sleep(backoff)
