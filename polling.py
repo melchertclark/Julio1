@@ -9,11 +9,10 @@ backoff strategy and maintains a log of all changes.
 """
 
 import difflib
-import json
 import os
 import re
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 import requests
 import pytz
@@ -62,8 +61,8 @@ def fetch_lifelogs(date=None, start=None):
     """Fetch lifelogs from the Limitless API."""
     params = {
         "timezone": "US/Eastern",
-        "includeMarkdown": "true",
-        "includeHeadings": "true",
+        "includeMarkdown": "false",
+        "includeHeadings": "false",
         "direction": "asc",
         "limit": 100,
     }
@@ -75,7 +74,13 @@ def fetch_lifelogs(date=None, start=None):
     response = requests.get(LIMITLESS_API_URL, headers=HEADERS, params=params)
     response.raise_for_status()
     data = response.json()
-    return data.get("data", {}).get("lifelogs", [])
+    lifelogs = data.get("data", {}).get("lifelogs", [])
+
+    for lifelog in lifelogs:
+        if "textChunks" in lifelog:
+            lifelog["text"] = "\n".join(chunk.get("text", "") for chunk in lifelog.get("textChunks", []))
+
+    return lifelogs
 
 
 def send_ntfy_notification(content, title=None):
@@ -208,7 +213,11 @@ def main():
 
             for lifelog in lifelogs:
                 lifelog_id = lifelog.get("id")
-                content = lifelog.get("markdown") or ""
+                content = (
+                    lifelog.get("text")
+                    or lifelog.get("markdown")
+                    or ""
+                )
                 end_time = lifelog.get("endTime")
                 title = lifelog.get("title") or "Limitless Update"
                 prev = last_lifelogs.get(lifelog_id)
@@ -256,7 +265,11 @@ def main():
 
             if most_recent_update:
                 lifelog, prev_content = most_recent_update
-                content = lifelog.get("markdown") or ""
+                content = (
+                    lifelog.get("text")
+                    or lifelog.get("markdown")
+                    or ""
+                )
                 end_time = lifelog.get("endTime")
                 title = lifelog.get("title") or "Limitless Update"
                 send_ntfy_notification(content, title=title)
